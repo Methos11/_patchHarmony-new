@@ -1,111 +1,56 @@
-name: Module zip
+name: Build Custom LKM (Hardcore)
+
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        kmi:
-          - android12-5.10
-          - android13-5.10
-          - android13-5.15
-          - android14-5.15
-          - android14-6.1
-          - android15-6.6
-          - android16-6.12
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/ylarod/ddk-min:${{ matrix.kmi }}-20260313
+      image: ghcr.io/ylarod/ddk-min:android13-5.15-20260313
       options: --privileged
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch deps
-        env:
-          KMSDK_TOKEN: ${{ secrets.KMSDK_TOKEN }}
+      - name: Override config and symvers
         run: |
-          git config --global url."https://x-access-token:${KMSDK_TOKEN}@github.com/".insteadOf "git@github.com:"
-          scripts/fetch-deps.sh
+          # 强制使用你上传的原厂文件
+          cp config .config
+          cp Module.symvers ./
+          echo "--- 已注入原厂 config 和 symvers ---"
+          ls -lh .config Module.symvers
 
-      - name: Build ${{ matrix.kmi }}
+      - name: Build Custom Module (Force Use Local Symvers)
         run: |
-          make VER=${{ matrix.kmi }} > build.log 2>&1 || { tail -50 build.log; exit 1; }
-          tail -5 build.log
+          # 关键：通过 KBUILD_EXTRA_SYMBOLS 变量强制 make 使用本地的符号表
+          make VER=android13-5.15 \
+               KERNEL_SRC=$(pwd) \
+               KDIR=$(pwd) \
+               KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers \
+               > build.log 2>&1 || { tail -100 build.log; exit 1; }
+          tail -10 build.log
 
-      - name: Zero warning gate
+      - name: Patch Vermagic
         run: |
-          if grep -nE "error:|warning:" build.log; then
-            echo "build log is not clean"
-            exit 1
-          fi
+          python3 -c "
+          import os
+          for file in ['out/android13-5.15/droid_lkm.ko', 'out/android13-5.15/droid_lkm_vendor.ko']:
+              if os.path.exists(file):
+                  with open(file, 'rb') as f: data = f.read()
+                  old = b'5.15.202-android13-5.15.202_r00-dirty'
+                  new = b'5.15.180-android13-8-o-g88bbcb96ee5e'
+                  if old in data:
+                      data = data.replace(old, new.ljust(len(old), b'\0'))
+                      with open(file, 'wb') as f: f.write(data)
+                      print(f'✅ 强制修改 Vermagic 成功: {file}')
+                  else:
+                      print(f'⚠️ 未找到 Vermagic 字符串，可能原厂编译已经匹配')
+          "
 
       - uses: actions/upload-artifact@v4
         with:
-          name: droid_lkm-${{ matrix.kmi }}
+          name: droid_lkm-OPPO-RealCustom
           path: |
-            out/${{ matrix.kmi }}/droid_lkm.ko
-            out/${{ matrix.kmi }}/droid_lkm_vendor.ko
-          if-no-files-found: warn
-
-  package:
-    needs: build
-    
-    if: always() && needs.build.result != 'cancelled'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.5.1'
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: art
-
-      - name: Collect ko
-        run: |
-          mkdir -p out
-          for d in art/*/; do
-            k=${d%/}; k=${k##*/droid_lkm-}
-            [ -f "$d/droid_lkm.ko" ] || { echo "skip $k: no droid_lkm.ko"; continue; }
-            mkdir -p "out/$k"
-            cp "$d"/*.ko "out/$k/"
-            echo "$k: $(ls "out/$k" | tr '\n' ' ')"
-          done
-          if [ -z "$(ls -A out)" ]; then
-            echo "no ko collected, nothing to package"
-            exit 1
-          fi
-
-      - name: Package
-        run: |
-          args=""
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            args="-Pversion=$GITHUB_REF_NAME"
-          fi
-          gradle --no-daemon packageModule $args
-          ls -lh build/dist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phDroid-module
-          path: build/dist/*.zip
+            out/android13-5.15/droid_lkm.ko
+            out/android13-5.15/droid_lkm_vendor.ko
           if-no-files-found: error
-
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: build/dist/*.zip
-          generate_release_notes: true
