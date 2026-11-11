@@ -13,24 +13,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Fetch deps (Use HTTPS)
+        run: |
+          chmod +x scripts/fetch-deps.sh
+          scripts/fetch-deps.sh
+
       - name: Override config and symvers
         run: |
-          # 把上传的 config 改名为内核编译需要的 .config
           cp config .config
-          
-          # Module.symvers 本来就在根目录，只需检查一下它是否存在
           echo "--- 检查原厂文件 ---"
           ls -lh .config Module.symvers
 
-      - name: Build Custom Module (Force Use Local Symvers)
+      - name: Build Custom Module
         run: |
-          # 强行把 Module.symvers 所在路径传给 make，防止它去下外网的
           make VER=android13-5.15 \
                KERNEL_SRC=$(pwd) \
                KDIR=$(pwd) \
                KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers \
                > build.log 2>&1 || { tail -100 build.log; exit 1; }
-          echo "--- 编译成功，日志尾部 ---"
           tail -10 build.log
 
       - name: Patch Vermagic
@@ -47,7 +47,7 @@ jobs:
                       with open(file, 'wb') as f: f.write(data)
                       print(f'✅ 强制修改 Vermagic 成功: {file}')
                   else:
-                      print(f'⚠️ 未找到 Vermagic 字符串，可能原厂编译已经匹配')
+                      print(f'⚠️ 未找到 Vermagic 字符串')
           "
 
       - name: Upload Artifact
