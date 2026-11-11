@@ -10,24 +10,27 @@ jobs:
       image: ghcr.io/ylarod/ddk-min:android13-5.15-20260313
       options: --privileged
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Override config and symvers
         run: |
-          # 强制使用你上传的原厂文件
+          # 把上传的 config 改名为内核编译需要的 .config
           cp config .config
-          cp Module.symvers ./
-          echo "--- 已注入原厂 config 和 symvers ---"
+          
+          # Module.symvers 本来就在根目录，只需检查一下它是否存在
+          echo "--- 检查原厂文件 ---"
           ls -lh .config Module.symvers
 
       - name: Build Custom Module (Force Use Local Symvers)
         run: |
-          # 关键：通过 KBUILD_EXTRA_SYMBOLS 变量强制 make 使用本地的符号表
+          # 强行把 Module.symvers 所在路径传给 make，防止它去下外网的
           make VER=android13-5.15 \
                KERNEL_SRC=$(pwd) \
                KDIR=$(pwd) \
                KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers \
                > build.log 2>&1 || { tail -100 build.log; exit 1; }
+          echo "--- 编译成功，日志尾部 ---"
           tail -10 build.log
 
       - name: Patch Vermagic
@@ -47,7 +50,8 @@ jobs:
                       print(f'⚠️ 未找到 Vermagic 字符串，可能原厂编译已经匹配')
           "
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: droid_lkm-OPPO-RealCustom
           path: |
