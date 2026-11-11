@@ -18,16 +18,16 @@ jobs:
           chmod +x scripts/fetch-deps.sh
           scripts/fetch-deps.sh
 
-      - name: Override config and symvers
+      - name: Override config
         run: |
+          # 只覆盖 config，不覆盖 Module.symvers
           cp config .config
-          echo "--- 检查原厂文件 ---"
-          ls -lh .config Module.symvers
+          echo "--- 检查原厂 config ---"
+          ls -lh .config
 
       - name: Build Custom Module
         run: |
-          # 让 make 自己寻找正确的内核源码树，我们只负责把符号表塞给它
-          KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers make VER=android13-5.15 > build.log 2>&1 || { tail -100 build.log; exit 1; }
+          make VER=android13-5.15 > build.log 2>&1 || { tail -100 build.log; exit 1; }
           tail -10 build.log
 
       - name: Patch Vermagic
