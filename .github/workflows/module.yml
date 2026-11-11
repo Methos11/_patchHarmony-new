@@ -26,11 +26,8 @@ jobs:
 
       - name: Build Custom Module
         run: |
-          make VER=android13-5.15 \
-               KERNEL_SRC=$(pwd) \
-               KDIR=$(pwd) \
-               KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers \
-               > build.log 2>&1 || { tail -100 build.log; exit 1; }
+          # 让 make 自己寻找正确的内核源码树，我们只负责把符号表塞给它
+          KBUILD_EXTRA_SYMBOLS=$(pwd)/Module.symvers make VER=android13-5.15 > build.log 2>&1 || { tail -100 build.log; exit 1; }
           tail -10 build.log
 
       - name: Patch Vermagic
